@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RSVP • Boarding Pass</title>
+  <!-- Tailwind for quick styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- QRCode generator -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    @media print {
+      /* Hide everything except the printable area when printing */
+      body * { visibility: hidden; }
+      #print-area, #print-area * { visibility: visible; }
+      #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900">
+  <div class="max-w-5xl mx-auto px-4 py-8">
+    <header class="mb-8 flex items-center justify-between">
+      <h1 class="text-3xl font-extrabold tracking-tight">RSVP & Boarding Pass</h1>
+      <div class="text-sm text-gray-600">Single‑file site • Host on GitHub Pages</div>
+    </header>
+
+    <!-- CARD -->
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- RSVP FORM -->
+      <section class="bg-white rounded-2xl shadow p-6">
+        <h2 class="text-xl font-semibold mb-4">RSVP</h2>
+        <form id="rsvpForm" class="space-y-4" autocomplete="on">
+          <div>
+            <label class="block text-sm font-medium">Full name</label>
+            <input required name="name" class="mt-1 w-full rounded-xl border px-3 py-2" placeholder="e.g., Suraya Bakboord" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Email</label>
+            <input required name="email" type="email" class="mt-1 w-full rounded-xl border px-3 py-2" placeholder="you@example.com" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">RSVP</label>
+            <div class="mt-2 flex gap-4">
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="rsvp" value="yes" required class="accent-black" /> Yes
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input type="radio" name="rsvp" value="no" class="accent-black" /> No
+              </label>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Guests (optional)</label>
+            <input name="guests" type="number" min="0" max="10" value="0" class="mt-1 w-full rounded-xl border px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Note (optional)</label>
+            <textarea name="note" rows="2" class="mt-1 w-full rounded-xl border px-3 py-2" placeholder="Allergies, accessibility, etc."></textarea>
+          </div>
+          <button class="w-full rounded-xl bg-black text-white py-2.5 font-semibold hover:opacity-90" type="submit">Submit RSVP</button>
+        </form>
+
+        <p id="rsvpMsg" class="hidden mt-4 text-sm"></p>
+      </section>
+
+      <!-- BOARDING PASS PREVIEW / DOWNLOAD -->
+      <section class="bg-white rounded-2xl shadow p-6">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-xl font-semibold">Boarding Pass</h2>
+          <div class="text-xs text-gray-500">Auto‑generates if you answer “Yes”</div>
+        </div>
+
+        <div id="boardingWrapper" class="space-y-4">
+          <!-- Canvas preview -->
+          <div class="border rounded-xl overflow-hidden">
+            <canvas id="passCanvas" class="w-full block"></canvas>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button id="downloadBtn" class="rounded-xl border px-4 py-2 disabled:opacity-40" disabled>Download PNG</button>
+            <button id="printBtn" class="rounded-xl border px-4 py-2 disabled:opacity-40" disabled>Print</button>
+          </div>
+
+          <!-- Hidden print area (will render the PNG for system print) -->
+          <div id="print-area" class="hidden">
+            <img id="printImage" alt="Boarding Pass" class="w-full" />
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- GUEST LIST (password protected) -->
+<section id="guestLock" class="mt-8 bg-white rounded-2xl shadow p-6">
+  <h2 class="text-xl font-semibold mb-4">Guest List Access</h2>
+  <p class="text-sm text-gray-600 mb-3">Enter password to view the guest list.</p>
+  <input id="guestPw" type="password" class="rounded-xl border px-3 py-2 w-full mb-3" placeholder="Password" />
+  <button id="pwBtn" class="rounded-xl border px-4 py-2">Unlock</button>
+  <p id="pwMsg" class="text-sm text-red-600 mt-2 hidden">Incorrect password.</p>
+</section>
+
+<section id="guestSection" class="mt-8 bg-white rounded-2xl shadow p-6 hidden">
+    <section class="mt-8 bg-white rounded-2xl shadow p-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-semibold">Guest List (local)</h2>
+        <div class="flex gap-2">
+          <button id="exportCsvBtn" class="rounded-xl border px-3 py-1.5 text-sm">Export CSV</button>
+          <button id="clearListBtn" class="rounded-xl border px-3 py-1.5 text-sm">Clear (local)</button>
+        </div>
+      </div>
+      <div class="text-xs text-gray-500 mb-3">Stored in your browser only. For Google Sheets sync later, attach an Apps Script webhook.</div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm" id="guestTable">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="px-3 py-2">Time</th>
+              <th class="px-3 py-2">Name</th>
+              <th class="px-3 py-2">Email</th>
+              <th class="px-3 py-2">RSVP</th>
+              <th class="px-3 py-2">Guests</th>
+              <th class="px-3 py-2">Note</th>
+              <th class="px-3 py-2">ID</th>
+            </tr>
+          </thead>
+          <tbody id="guestTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="mt-10 text-center text-xs text-gray-500">
+      Tip: put this file in a GitHub repo → Settings → Pages → deploy from <em>main</em> to host it.
+    </footer>
+  </div>
+
+  <script>
+    // --- Utilities ---
+    const $ = (sel) => document.querySelector(sel);
+    const guestKey = 'rsvp-guests-v1';
+
+    function loadGuests() {
+      try { return JSON.parse(localStorage.getItem(guestKey) || '[]'); } catch { return []; }
+    }
+    function saveGuests(list) { localStorage.setItem(guestKey, JSON.stringify(list)); }
+
+    function addGuestRow(g) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="px-3 py-2 whitespace-nowrap">${new Date(g.ts).toLocaleString()}</td>
+        <td class="px-3 py-2">${escapeHtml(g.name)}</td>
+        <td class="px-3 py-2">${escapeHtml(g.email)}</td>
+        <td class="px-3 py-2 uppercase">${g.rsvp}</td>
+        <td class="px-3 py-2">${g.guests ?? 0}</td>
+        <td class="px-3 py-2">${escapeHtml(g.note || '')}</td>
+        <td class="px-3 py-2 text-xs text-gray-500">${g.id}</td>`;
+      $('#guestTbody').prepend(tr);
+    }
+
+    function escapeHtml(s){
+      return (s??'').replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]||c));
+    }
+
+    function exportCsv(list){
+      const headers = ['ts','name','email','rsvp','guests','note','id'];
+      const rows = [headers.join(',')].concat(list.map(g => headers.map(h => {
+        const val = (g[h]!==undefined && g[h]!==null) ? String(g[h]) : '';
+        // Escape CSV
+        return '"' + val.replace(/"/g,'""') + '"';
+      }).join(',')));
+      const blob = new Blob([rows.join('\n')], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'guest_list.csv'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- Boarding Pass Drawing ---
+    const canvas = document.getElementById('passCanvas');
+    const ctx = canvas.getContext('2d');
+    const DPR = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+
+    function drawPass(opts) {
+      // opts: {name, email, id, eventName, eventDate, eventPlace}
+      const W = 1200, H = 520; // design size
+      canvas.width = W * DPR; canvas.height = H * DPR; canvas.style.height = H+'px'; canvas.style.width = '100%';
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+
+      // Background
+      const grad = ctx.createLinearGradient(0,0,W,0);
+      grad.addColorStop(0,'#111827'); // gray-900
+      grad.addColorStop(1,'#1f2937'); // gray-800
+      ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+
+      // Perforation line
+      ctx.setLineDash([8,10]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(W*0.66, 30); ctx.lineTo(W*0.66, H-30); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Header
+      ctx.fillStyle = 'white';
+      ctx.font = '700 34px system-ui, -apple-system, Segoe UI, Roboto';
+      ctx.fillText(opts.eventName || '\u2019t Bakhuyz • First Reveal', 30, 60);
+
+      ctx.font = '400 20px system-ui';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillText(opts.eventDate || 'Fri, 12 Dec 2025 · 17:09', 30, 90);
+      ctx.fillText(opts.eventPlace || 'Amsterdam, NL', 30, 116);
+
+      // Passenger block
+      ctx.fillStyle = 'white'; ctx.font = '600 28px system-ui';
+      ctx.fillText('PASSENGER', 30, 170);
+      ctx.font = '700 40px system-ui';
+      ctx.fillText((opts.name || 'Guest').toUpperCase(), 30, 220);
+
+      ctx.font = '600 26px system-ui';
+      ctx.fillText('BOARDING', 30, 270);
+      ctx.font = '700 34px system-ui';
+      ctx.fillText('17:09', 30, 310);
+
+      ctx.font = '600 26px system-ui'; ctx.fillText('SEAT', 470, 270);
+      ctx.font = '700 34px system-ui'; ctx.fillText(seat, 470, 310);
+
+      // Right panel title
+      ctx.font = '700 26px system-ui'; ctx.fillText('BOARDING PASS', W*0.66 + 24, 60);
+      ctx.font = '400 18px system-ui'; ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillText(opts.eventName || '\u2019t Bakhuyz • First Reveal', W*0.66 + 24, 90);
+
+      // QR Code (render off-DOM then draw)
+      const tempDiv = document.createElement('div');
+      const payload = JSON.stringify({id: opts.id, name: opts.name, email: opts.email});
+      const qr = new QRCode(tempDiv, { text: payload, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+      setTimeout(() => {
+        try {
+          const img = tempDiv.querySelector('img');
+          if (img && img.complete) {
+            ctx.drawImage(img, W*0.66 + 24, 120, 160, 160);
+            finish();
+          } else {
+            img.onload = () => { ctx.drawImage(img, W*0.66 + 24, 120, 160, 160); finish(); };
+          }
+        } catch {
+          finish();
+        }
+      }, 0);
+
+      function finish(){
+        // Barcode (fake visual)
+        ctx.fillStyle = 'white';
+        const barsX = W*0.66 + 24, barsY = 300, barsW = W*0.33 - 48, barsH = 80;
+        for (let x = 0; x < barsW; x += 4) {
+          if (Math.random() > 0.5) ctx.fillRect(barsX + x, barsY, 2, barsH);
+        }
+
+        // Footer
+        ctx.font = '400 14px system-ui';
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.fillText(`ID: ${opts.id}`, 30, H-24);
+
+        enableDownloadAndPrint();
+      }
+    }
+
+    function enableDownloadAndPrint(){
+      const dataUrl = canvas.toDataURL('image/png');
+      const dl = document.getElementById('downloadBtn');
+      const pr = document.getElementById('printBtn');
+      const printImg = document.getElementById('printImage');
+      dl.disabled = false; pr.disabled = false;
+      dl.onclick = () => {
+        const a = document.createElement('a');
+        a.href = dataUrl; a.download = 'boarding_pass.png'; a.click();
+      };
+      printImg.src = dataUrl;
+      pr.onclick = () => {
+        document.getElementById('print-area').classList.remove('hidden');
+        window.print();
+        setTimeout(() => document.getElementById('print-area').classList.add('hidden'), 300);
+      };
+    }
+
+    // --- Populate guest table only after unlock ---
+function loadGuestTable(){
+  const initial = loadGuests();
+  initial.forEach(addGuestRow);
+}
+
+    // --- Form submit handler ---
+    document.getElementById('rsvpForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const name = (fd.get('name')||'').toString().trim();
+      const email = (fd.get('email')||'').toString().trim();
+      const rsvp = (fd.get('rsvp')||'').toString();
+      const guests = Number(fd.get('guests')||0);
+      const note = (fd.get('note')||'').toString();
+      const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+'-'+Math.random().toString(36).slice(2));
+      const entry = { ts: Date.now(), name, email, rsvp, guests, note, id };
+
+      // Save locally & update table
+      const list = loadGuests(); list.push(entry); saveGuests(list);
+      addGuestRow(entry);
+
+      const msg = document.getElementById('rsvpMsg');
+      msg.classList.remove('hidden');
+      msg.classList.toggle('text-green-700', rsvp==='yes');
+      msg.classList.toggle('text-red-700', rsvp==='no');
+
+      if (rsvp === 'yes') {
+        msg.textContent = 'Thanks! Your boarding pass is ready below ⬇';
+        drawPass({
+          name,
+          email,
+          id,
+          eventName: '\u2019t Bakhuyz • First Reveal',
+          eventDate: 'Fri, 12 Dec 2025 · 17:09',
+          eventPlace: 'Amsterdam, NL'
+        });
+      } else {
+        msg.textContent = "Thanks for letting us know — we'll miss you!";
+        // Clear canvas/buttons
+        const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height);
+        document.getElementById('downloadBtn').disabled = true;
+        document.getElementById('printBtn').disabled = true;
+      }
+
+      // Optional: POST to your webhook (Google Apps Script) later
+      // fetch('YOUR_APPS_SCRIPT_WEBHOOK_URL', { method:'POST', mode:'no-cors', body: JSON.stringify(entry) });
+
+      e.target.reset();
+    });
+
+    // Export & Clear buttons
+    document.getElementById('exportCsvBtn').addEventListener('click', () => exportCsv(loadGuests()));
+    document.getElementById('clearListBtn').addEventListener('click', () => {
+      if (confirm('Clear local guest list?')) {
+        saveGuests([]); document.getElementById('guestTbody').innerHTML = '';
+      }
+    });
+
+    // --- Password lock (works after DOM & functions exist) ---
+    (function(){
+      const pwBtn = document.getElementById('pwBtn');
+      if (!pwBtn) return;
+      const unlock = () => {
+        const pw = document.getElementById('guestPw').value.trim();
+        if (pw === '10041997') {
+          const lock = document.getElementById('guestLock');
+          lock.classList.add('opacity-0','transition-opacity','duration-300','ring-4','ring-green-400','shadow-[0_0_20px_5px_rgba(34,197,94,0.7)]');
+          setTimeout(() => {
+            lock.classList.add('hidden');
+            document.getElementById('guestSection').classList.remove('hidden');
+            loadGuestTable();
+          }, 300);
+        } else {
+          document.getElementById('pwMsg').classList.remove('hidden');
+        }
+      };
+      pwBtn.addEventListener('click', unlock);
+      document.getElementById('guestPw').addEventListener('keydown', (e)=>{ if (e.key==='Enter') { e.preventDefault(); unlock(); }});
+    })();
+  </script>
+</body>
+</html>
